@@ -1,0 +1,84 @@
+"""Structured output schemas for all agents in the news aggregator pipeline."""
+
+from typing import Literal
+from pydantic import BaseModel, Field
+
+
+class SelectedSource(BaseModel):
+    """A news source selected for processing."""
+
+    country: str = Field(
+        description="Country or organization (e.g., 'United States', 'United Nations')"
+    )
+    media_name: str = Field(description="Name of the media outlet")
+    url: str = Field(description="URL to visit")
+    priority: Literal["high", "medium", "low"] = Field(
+        description="Priority based on relevance to the topic"
+    )
+
+
+class PlanningOutput(BaseModel):
+    """Output from the planning agent that selects relevant sources."""
+
+    topic: str = Field(description="The news topic being researched")
+    selected_sources: list[SelectedSource] = Field(
+        description="List of selected news sources to process",
+        min_length=1,
+        max_length=15,
+    )
+    rationale: str = Field(
+        description="Brief explanation of selection criteria (max 2 sentences)"
+    )
+
+
+class ArticleExtraction(BaseModel):
+    """Extracted information from a single news article."""
+
+    headline: str = Field(description="Article headline or title")
+    article_url: str = Field(description="Direct URL to the article")
+    core_viewpoint: str = Field(
+        description="The media's core viewpoint in 1-2 sentences, focusing on their perspective or stance"
+    )
+    publication_date: str | None = Field(
+        default=None, description="Publication date if available (YYYY-MM-DD format)"
+    )
+
+
+class SourceProcessingResult(BaseModel):
+    """Result from processing a single news source (map phase output)."""
+
+    country: str
+    media_name: str
+    homepage_url: str
+    found_coverage: bool = Field(description="Whether relevant news was found")
+    article: ArticleExtraction | None = Field(
+        default=None, description="Extracted article if coverage was found"
+    )
+    error: str | None = Field(
+        default=None, description="Error message if processing failed"
+    )
+
+
+class MediaComparison(BaseModel):
+    """A row in the final comparison table."""
+
+    country: str
+    media_name: str
+    article_title: str
+    article_url: str
+    core_viewpoint: str
+
+
+class AggregationOutput(BaseModel):
+    """Final aggregated output (reduce phase output)."""
+
+    topic: str
+    total_sources_checked: int
+    sources_with_coverage: int
+    comparison_table: list[MediaComparison] = Field(
+        description="Rows for the comparison table, sorted by priority/relevance"
+    )
+    summary: str = Field(
+        description="2-3 sentence summary highlighting key patterns or disagreements across sources"
+    )
+    processing_timestamp: str = Field(description="ISO 8601 timestamp")
