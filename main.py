@@ -19,7 +19,6 @@ from schemas import (
     SourceProcessingResult,
 )
 
-
 # Global news sources list
 GLOBAL_SOURCES = """
 | 国家/组织      | 媒体名称                      | 官方网址                                                             |
@@ -52,6 +51,7 @@ async def planning_phase(topic: str) -> PlanningOutput:
     agent = create_agent(
         model="deepseek-chat",
         tools=[],  # No tools needed for planning
+        response_format=PlanningOutput,
         system_prompt="""You are a media analysis expert selecting news sources.
 
 Task: Select 10-12 most relevant news sources for the topic.
@@ -76,15 +76,13 @@ Return your selection as structured output following the PlanningOutput schema."
 Available sources:
 {GLOBAL_SOURCES}
 
-Select 10-12 sources that will provide diverse perspectives on this topic.
-Return as structured JSON matching PlanningOutput schema.""",
+Select 10-12 sources that will provide diverse perspectives on this topic.""",
                 )
             ]
         },
-        config={"response_format": PlanningOutput},
     )
 
-    planning_output = PlanningOutput.model_validate_json(response["output"])
+    planning_output: PlanningOutput = response["structured_response"]
     print(f"Selected {len(planning_output.selected_sources)} sources")
     print(f"Rationale: {planning_output.rationale}")
 
@@ -103,6 +101,7 @@ async def map_phase_single_source(
         agent = create_agent(
             model="deepseek-chat",
             tools=tools,
+            response_format=ArticleExtraction,
             system_prompt=f"""You are a news extraction specialist.
 
 Task: Visit the homepage and find news about: {topic}
@@ -125,16 +124,14 @@ If no relevant news is found, return found_coverage=false.""",
                         "user",
                         f"""Visit {source.url} and search for news about: {topic}
 
-Extract the information as structured JSON matching ArticleExtraction schema.
 Only look at the homepage - don't navigate deep into the site.""",
                     )
                 ]
             },
-            config={"response_format": ArticleExtraction},
         )
 
-        # Parse structured output
-        article = ArticleExtraction.model_validate_json(response["output"])
+        # Get structured output
+        article: ArticleExtraction = response["structured_response"]
 
         result = SourceProcessingResult(
             country=source.country,
@@ -234,6 +231,7 @@ async def reduce_phase(
     agent = create_agent(
         model="deepseek-chat",
         tools=[],  # No tools needed for aggregation
+        response_format=AggregationOutput,
         system_prompt="""You are a media analysis synthesizer.
 
 Task: Aggregate extracted articles into a comparison table and summary.
@@ -255,15 +253,13 @@ Requirements:
 Extracted articles from {len(successful_results)} sources:
 {results_json}
 
-Create final aggregation with comparison table and summary.
-Return as structured JSON matching AggregationOutput schema.""",
+Create final aggregation with comparison table and summary.""",
                 )
             ]
         },
-        config={"response_format": AggregationOutput},
     )
 
-    aggregation = AggregationOutput.model_validate_json(response["output"])
+    aggregation: AggregationOutput = response["structured_response"]
     aggregation.topic = topic
     aggregation.total_sources_checked = len(map_results)
     aggregation.sources_with_coverage = len(successful_results)
