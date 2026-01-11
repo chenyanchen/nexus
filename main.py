@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 
 from langchain.agents import create_agent
+from langchain.messages import HumanMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_mcp_adapters.tools import load_mcp_tools
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -42,6 +44,72 @@ GLOBAL_SOURCES = """
 | **乌克兰**     | Kyiv Independent              | https://kyivindependent.com/                                         |
 """
 
+planning_system_prompt = SystemMessage("""You are a media analysis expert selecting news sources.
+
+Task: Select 10-12 most relevant news sources for the topic.
+
+Selection criteria:
+1. Geographic diversity (different regions/perspectives)
+2. Political diversity (different political leanings)
+3. Reliability (established mainstream sources)
+4. Likely to have coverage of this topic
+
+Return your selection as structured output following the PlanningOutput schema.""")
+
+planning_human_prompt = HumanMessage("""Topic: {topic}
+
+Available sources:
+{sources}
+
+Select 10-12 sources that will provide diverse perspectives on this topic.""")
+
+planning_chat_prompt_template = ChatPromptTemplate(
+    messages=[planning_system_prompt, planning_human_prompt]
+)
+
+# Map phase prompts
+map_system_prompt = SystemMessage("""You are a news extraction specialist.
+
+Task: Visit the homepage and find news about the given topic.
+
+Steps:
+1. Navigate to the homepage
+2. Look for headlines/articles about the topic
+3. If found, click to read the article
+4. Extract: headline, article URL, core viewpoint (1-2 sentences)
+5. Return structured output
+
+If no relevant news is found, return found_coverage=false.""")
+
+map_human_prompt = HumanMessage("""Visit {url} and search for news about: {topic}
+
+Only look at the homepage - don't navigate deep into the site.""")
+
+map_chat_prompt_template = ChatPromptTemplate(
+    messages=[map_system_prompt, map_human_prompt]
+)
+
+# Reduce phase prompts
+reduce_system_prompt = SystemMessage("""You are a media analysis synthesizer.
+
+Task: Aggregate extracted articles into a comparison table and summary.
+
+Requirements:
+1. Create comparison table sorted by relevance/importance
+2. Write 2-3 sentence summary highlighting key patterns, differences, or consensus
+3. Return structured output following AggregationOutput schema""")
+
+reduce_human_prompt = HumanMessage("""Topic: {topic}
+
+Extracted articles from {source_count} sources:
+{results_json}
+
+Create final aggregation with comparison table and summary.""")
+
+reduce_chat_prompt_template = ChatPromptTemplate(
+    messages=[reduce_system_prompt, reduce_human_prompt]
+)
+
 
 async def planning_phase(topic: str) -> PlanningOutput:
     """Phase 1: Select relevant sources without browser tools (no context bloat)."""
@@ -52,34 +120,13 @@ async def planning_phase(topic: str) -> PlanningOutput:
         model="deepseek-chat",
         tools=[],  # No tools needed for planning
         response_format=PlanningOutput,
-        system_prompt="""You are a media analysis expert selecting news sources.
-
-Task: Select 10-12 most relevant news sources for the topic.
-
-Selection criteria:
-1. Geographic diversity (different regions/perspectives)
-2. Political diversity (different political leanings)
-3. Reliability (established mainstream sources)
-4. Likely to have coverage of this topic
-
-Return your selection as structured output following the PlanningOutput schema.""",
         debug=True,
     )
 
     response = await agent.ainvoke(
-        input={
-            "messages": [
-                (
-                    "user",
-                    f"""Topic: {topic}
-
-Available sources:
-{GLOBAL_SOURCES}
-
-Select 10-12 sources that will provide diverse perspectives on this topic.""",
-                )
-            ]
-        },
+        planning_chat_prompt_template.invoke(
+            {"topic": topic, "sources": GLOBAL_SOURCES}
+        )
     )
 
     planning_output: PlanningOutput = response["structured_response"]
@@ -102,32 +149,11 @@ async def map_phase_single_source(
             model="deepseek-chat",
             tools=tools,
             response_format=ArticleExtraction,
-            system_prompt=f"""You are a news extraction specialist.
-
-Task: Visit the homepage and find news about: {topic}
-
-Steps:
-1. Navigate to the homepage
-2. Look for headlines/articles about the topic
-3. If found, click to read the article
-4. Extract: headline, article URL, core viewpoint (1-2 sentences)
-5. Return structured output
-
-If no relevant news is found, return found_coverage=false.""",
             debug=True,
         )
 
         response = await agent.ainvoke(
-            input={
-                "messages": [
-                    (
-                        "user",
-                        f"""Visit {source.url} and search for news about: {topic}
-
-Only look at the homepage - don't navigate deep into the site.""",
-                    )
-                ]
-            },
+            map_chat_prompt_template.invoke({"url": source.url, "topic": topic})
         )
 
         # Get structured output
@@ -232,31 +258,17 @@ async def reduce_phase(
         model="deepseek-chat",
         tools=[],  # No tools needed for aggregation
         response_format=AggregationOutput,
-        system_prompt="""You are a media analysis synthesizer.
-
-Task: Aggregate extracted articles into a comparison table and summary.
-
-Requirements:
-1. Create comparison table sorted by relevance/importance
-2. Write 2-3 sentence summary highlighting key patterns, differences, or consensus
-3. Return structured output following AggregationOutput schema""",
         debug=True,
     )
 
     response = await agent.ainvoke(
-        input={
-            "messages": [
-                (
-                    "user",
-                    f"""Topic: {topic}
-
-Extracted articles from {len(successful_results)} sources:
-{results_json}
-
-Create final aggregation with comparison table and summary.""",
-                )
-            ]
-        },
+        reduce_chat_prompt_template.invoke(
+            {
+                "topic": topic,
+                "source_count": len(successful_results),
+                "results_json": results_json,
+            }
+        )
     )
 
     aggregation: AggregationOutput = response["structured_response"]
