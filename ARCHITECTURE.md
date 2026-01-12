@@ -14,18 +14,18 @@ These are **complementary concepts**, not alternatives:
 
 Input: 50 news sources
 
-MAP PHASE (parallel, independent contexts):
+EXTRACTION PHASE (Map Pattern - parallel, independent contexts):
   Source 1  →  [Agent] → Result 1  ┐
   Source 2  →  [Agent] → Result 2  │
   Source 3  →  [Agent] → Result 3  ├─→ [Results Array]
   ...                               │
   Source 50 →  [Agent] → Result 50 ┘
 
-REDUCE PHASE (single context, structured data only):
+AGGREGATION PHASE (Reduce Pattern - single context, structured data only):
   [Results Array] → [Aggregator] → Final Table
 
-✓ Each map agent has fresh context (20-50KB)
-✓ Reduce agent only sees structured JSON (30KB)
+✓ Each extraction agent has fresh context (20-50KB)
+✓ Aggregation agent only sees structured JSON (30KB)
 ✓ Peak context never exceeds 100KB
 ```
 
@@ -43,13 +43,13 @@ Phase 1: PLANNING AGENT
   Output: PlanningOutput (selected sources)
   Context: ~10KB
 
-Phase 2: EXECUTION AGENTS (used in MAP phase)
+Phase 2: EXECUTION AGENTS (Extraction Phase)
   Tools: Playwright (browser automation)
   Input: Single source URL + topic
   Output: SourceProcessingResult (structured)
   Context: ~20-50KB per instance
 
-Phase 3: AGGREGATION AGENT (used in REDUCE phase)
+Phase 3: AGGREGATION AGENT (Aggregation Phase)
   Tools: None (no browser)
   Input: Array of SourceProcessingResult
   Output: AggregationOutput (final table)
@@ -79,7 +79,7 @@ Our solution uses **separate specialized agents** to implement the **map-reduce 
            PlanningOutput (10-12 sources)
                         │
 ┌───────────────────────┴──────────────────────────────────────┐
-│ Phase 2: MAP                                                 │
+│ Phase 2: EXTRACTION                                          │
 │ Agent Type: Execution Agents (with Playwright)              │
 │ Pattern: Parallel processing with batching                  │
 └──────────────────────────────────────────────────────────────┘
@@ -97,7 +97,7 @@ Our solution uses **separate specialized agents** to implement the **map-reduce 
                  [SourceResult1, SourceResult2, ...]
                               │
 ┌─────────────────────────────┴────────────────────────────────┐
-│ Phase 3: REDUCE                                              │
+│ Phase 3: AGGREGATION                                         │
 │ Agent Type: Aggregation Agent (no tools)                     │
 │ Pattern: Single execution with structured data only          │
 └──────────────────────────────────────────────────────────────┘
@@ -121,7 +121,7 @@ PlanningOutput = {
     "rationale": str
 }
 
-# Phase 2: Map (per source)
+# Phase 2: Extraction (per source)
 SourceProcessingResult = {
     "country": str,
     "media_name": str,
@@ -137,7 +137,7 @@ ArticleExtraction = {
     "publication_date": str | None
 }
 
-# Phase 3: Reduce
+# Phase 3: Aggregation
 AggregationOutput = {
     "topic": str,
     "total_sources_checked": int,
@@ -153,14 +153,14 @@ AggregationOutput = {
 | Phase | Agent Type | Context Size | Why It's Small |
 |-------|-----------|--------------|----------------|
 | Planning | Planning Agent | ~10KB | Only source list → selection |
-| Map (each) | Execution Agent | 20-50KB | Single site, fresh context per source |
-| Reduce | Aggregation Agent | ~30KB | Only structured JSON, no HTML/screenshots |
+| Extraction (each) | Execution Agent | 20-50KB | Single site, fresh context per source |
+| Aggregation | Aggregation Agent | ~30KB | Only structured JSON, no HTML/screenshots |
 
 **Total Peak Context**: <100KB (78% under the 128K limit)
 
 ## Key Design Principles
 
-1. **Isolation**: Each map execution is independent (no shared state)
+1. **Isolation**: Each extraction execution is independent (no shared state)
 2. **Specialization**: Agents only have tools they need for their phase
 3. **Structure**: All outputs are Pydantic models (no free-form text)
 4. **Batching**: Process 3 sources at a time (resource management)
@@ -168,7 +168,7 @@ AggregationOutput = {
 
 ## When to Use This Pattern
 
-Use map-reduce with separate agents when:
+Use this extraction/aggregation pattern with separate agents when:
 - ✓ Processing many independent data sources (N > 5)
 - ✓ Each source has complex processing (browser automation, API calls)
 - ✓ Context limits are a concern (128K for DeepSeek)

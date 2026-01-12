@@ -4,7 +4,7 @@
 
 ### Q1: "Structured output is required for every agent"
 
-**Answer**: ✅ Implemented in `schemas.py` + `main_mapreduce.py`
+**Answer**: ✅ Implemented in `schemas.py` + `main.py`
 
 Every agent now returns Pydantic models:
 
@@ -48,8 +48,8 @@ AggregationOutput(
 
 **Map-Reduce Pattern:**
 ```
-50 sources → [Map: process each independently] → 50 results
-             → [Reduce: aggregate results] → 1 final table
+50 sources → [Extraction: process each independently] → 50 results
+             → [Aggregation: aggregate results] → 1 final table
 ```
 
 **Separate Agents:**
@@ -63,9 +63,9 @@ Aggregation Agent (no tools) → create table
 ```
 Planning Agent → selects sources
                ↓
-Execution Agents → map over sources (independent contexts)
+Execution Agents → extract from sources (map pattern - independent contexts)
                ↓
-Aggregation Agent → reduce to final table
+Aggregation Agent → aggregate to final table (reduce pattern)
 ```
 
 ## How This Solves Context Overflow
@@ -80,7 +80,7 @@ Single Agent with Playwright tools:
   = 150KB+ context → OVERFLOW! 💥
 ```
 
-### Solution (New Implementation: main_mapreduce.py)
+### Solution (New Implementation: main.py)
 ```
 Planning Agent (no tools):
   10KB context → PlanningOutput
@@ -104,7 +104,7 @@ Peak context: 50KB (not 150KB!) ✓
 
 ### 1. Fresh Context Per Source
 ```python
-async def map_phase_batch(sources):
+async def extract_from_sources(sources):
     for batch in batches(sources, size=3):
         # New MCP session for each batch
         async with stdio_client(...) as (reader, writer):
@@ -156,7 +156,7 @@ aggregation_agent = create_agent(
 ## Files Created
 
 1. **schemas.py** - Pydantic models for all agent outputs
-2. **main_mapreduce.py** - Production implementation with context management
+2. **main.py** - Production implementation with context management
 3. **ARCHITECTURE.md** - Detailed visual explanation of the pattern
 4. **CLAUDE.md** - Updated documentation for future Claude instances
 
@@ -168,11 +168,11 @@ To use the new implementation:
 # 1. Install dependencies (if not already done)
 uv sync
 
-# 2. Run the map-reduce pipeline
-python main_mapreduce.py
+# 2. Run the extraction and aggregation pipeline
+python main.py
 
 # 3. Check output
-ls -l news_aggregator_output/
+ls -l runs/
 ```
 
 To customize:
@@ -190,8 +190,8 @@ max_length=15  # In PlanningOutput schema
 
 ## Performance Characteristics
 
-| Metric | Old (main.py) | New (main_mapreduce.py) |
-|--------|---------------|-------------------------|
+| Metric | Old (single agent) | New (extraction/aggregation) |
+|--------|-------------------|------------------------------|
 | Peak context | 150KB+ (overflow!) | <100KB ✓ |
 | Sources processable | ~5-10 | 50+ ✓ |
 | Memory usage | High (one session) | Moderate (batched) |
@@ -202,7 +202,7 @@ max_length=15  # In PlanningOutput schema
 ## Conclusion
 
 The new implementation combines:
-- ✅ **Map-Reduce** (pattern) for processing many sources
+- ✅ **Extraction/Aggregation pattern** (map-reduce) for processing many sources
 - ✅ **Separate Agents** (specialization) for tool isolation
 - ✅ **Structured Output** (Pydantic) for type safety
 - ✅ **Batching** for resource management

@@ -1,4 +1,10 @@
-"""Map-reduce news aggregator with structured output and context management."""
+"""Multi-phase news aggregator with extraction and aggregation pipeline.
+
+Architecture:
+- Planning phase: Selects relevant news sources
+- Extraction phase: Scrapes articles from sources in parallel batches
+- Aggregation phase: Synthesizes results into comparison table
+"""
 
 import asyncio
 import json
@@ -106,8 +112,8 @@ planning_chat_prompt_template = ChatPromptTemplate(
     messages=[planning_system_prompt, planning_human_prompt]
 )
 
-# Map phase prompts
-map_system_prompt = SystemMessage("""You are a news extraction specialist.
+# Extraction phase prompts
+extraction_system_prompt = SystemMessage("""You are a news extraction specialist.
 
 Task: Visit the homepage and find news about the given topic.
 
@@ -120,16 +126,16 @@ Steps:
 
 If no relevant news is found, return found_coverage=false.""")
 
-map_human_prompt = HumanMessage("""Visit {url} and search for news about: {topic}
+extraction_human_prompt = HumanMessage("""Visit {url} and search for news about: {topic}
 
 Only look at the homepage - don't navigate deep into the site.""")
 
-map_chat_prompt_template = ChatPromptTemplate(
-    messages=[map_system_prompt, map_human_prompt]
+extraction_chat_prompt_template = ChatPromptTemplate(
+    messages=[extraction_system_prompt, extraction_human_prompt]
 )
 
-# Reduce phase prompts
-reduce_system_prompt = SystemMessage("""You are a media analysis synthesizer.
+# Aggregation phase prompts
+aggregation_system_prompt = SystemMessage("""You are a media analysis synthesizer.
 
 Task: Aggregate extracted articles into a comparison table and summary.
 
@@ -138,15 +144,15 @@ Requirements:
 2. Write 2-3 sentence summary highlighting key patterns, differences, or consensus
 3. Return structured output following AggregationOutput schema""")
 
-reduce_human_prompt = HumanMessage("""Topic: {topic}
+aggregation_human_prompt = HumanMessage("""Topic: {topic}
 
 Extracted articles from {source_count} sources:
 {results_json}
 
 Create final aggregation with comparison table and summary.""")
 
-reduce_chat_prompt_template = ChatPromptTemplate(
-    messages=[reduce_system_prompt, reduce_human_prompt]
+aggregation_chat_prompt_template = ChatPromptTemplate(
+    messages=[aggregation_system_prompt, aggregation_human_prompt]
 )
 
 
@@ -176,10 +182,10 @@ async def planning_phase(topic: str) -> PlanningOutput:
     return planning_output
 
 
-async def map_phase_single_source(
+async def extract_from_source(
     source: SelectedSource, topic: str, session: ClientSession
 ) -> SourceProcessingResult:
-    """Map phase: Process a single source with fresh agent context."""
+    """Extraction phase: Process a single source with fresh agent context."""
     print(f"\n--- Processing: {source.media_name} ({source.country}) ---")
 
     try:
@@ -193,7 +199,7 @@ async def map_phase_single_source(
         )
 
         response = await agent.ainvoke(
-            map_chat_prompt_template.invoke({"url": source.url, "topic": topic})
+            extraction_chat_prompt_template.invoke({"url": source.url, "topic": topic})
         )
 
         # Get structured output
@@ -221,11 +227,11 @@ async def map_phase_single_source(
         )
 
 
-async def map_phase_batch(
+async def extract_from_sources(
     sources: list[SelectedSource], topic: str
 ) -> list[SourceProcessingResult]:
-    """Map phase: Process sources in small batches to manage resources."""
-    print(f"\n=== MAP PHASE: Processing {len(sources)} sources ===")
+    """Extraction phase: Process sources in small batches to manage resources."""
+    print(f"\n=== EXTRACTION PHASE: Processing {len(sources)} sources ===")
 
     all_results = []
 
@@ -249,7 +255,7 @@ async def map_phase_batch(
 
                 # Process batch sources concurrently
                 tasks = [
-                    map_phase_single_source(source, topic, session) for source in batch
+                    extract_from_source(source, topic, session) for source in batch
                 ]
                 batch_results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -272,20 +278,22 @@ async def map_phase_batch(
 
     successful = sum(1 for r in all_results if r.found_coverage)
     print(
-        f"\n=== MAP PHASE COMPLETE: {successful}/{len(all_results)} sources found coverage ==="
+        f"\n=== EXTRACTION PHASE COMPLETE: {successful}/{len(all_results)} sources found coverage ==="
     )
 
     return all_results
 
 
-async def reduce_phase(
-    topic: str, map_results: list[SourceProcessingResult]
+async def aggregate_results(
+    topic: str, extraction_results: list[SourceProcessingResult]
 ) -> AggregationOutput:
-    """Reduce phase: Aggregate all results without browser tools (clean context)."""
-    print(f"\n=== REDUCE PHASE: Aggregating results ===")
+    """Aggregation phase: Aggregate all results without browser tools (clean context)."""
+    print(f"\n=== AGGREGATION PHASE: Aggregating results ===")
 
     # Filter to only successful extractions
-    successful_results = [r for r in map_results if r.found_coverage and r.article]
+    successful_results = [
+        r for r in extraction_results if r.found_coverage and r.article
+    ]
 
     # Convert to JSON for agent input (structured data only, no browser history)
     results_json = json.dumps(
@@ -302,7 +310,7 @@ async def reduce_phase(
     )
 
     response = await agent.ainvoke(
-        reduce_chat_prompt_template.invoke(
+        aggregation_chat_prompt_template.invoke(
             {
                 "topic": topic,
                 "source_count": len(successful_results),
@@ -313,7 +321,7 @@ async def reduce_phase(
 
     aggregation: AggregationOutput = response["structured_response"]
     aggregation.topic = topic
-    aggregation.total_sources_checked = len(map_results)
+    aggregation.total_sources_checked = len(extraction_results)
     aggregation.sources_with_coverage = len(successful_results)
     aggregation.processing_timestamp = datetime.now().isoformat()
 
@@ -359,17 +367,19 @@ def save_output(output: AggregationOutput) -> Path:
 
 
 async def main():
-    """Main orchestration: Planning → Map → Reduce."""
+    """Main orchestration: Planning → Extraction → Aggregation."""
     topic = "委内瑞拉总统被美国逮捕"  # Venezuela president arrested by US
 
     # Phase 1: Planning (no browser tools, minimal context)
     planning_output = await planning_phase(topic)
 
-    # Phase 2: Map (each source processed independently with fresh context)
-    map_results = await map_phase_batch(planning_output.selected_sources, topic)
+    # Phase 2: Extraction (each source processed independently with fresh context)
+    extraction_results = await extract_from_sources(
+        planning_output.selected_sources, topic
+    )
 
-    # Phase 3: Reduce (no browser tools, only structured data)
-    final_output = await reduce_phase(topic, map_results)
+    # Phase 3: Aggregation (no browser tools, only structured data)
+    final_output = await aggregate_results(topic, extraction_results)
 
     # Save output
     save_output(final_output)

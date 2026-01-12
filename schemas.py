@@ -55,7 +55,7 @@ class ArticleExtraction(BaseModel):
 
 
 class SourceProcessingResult(BaseModel):
-    """Result from processing a single news source (map phase output)."""
+    """Result from processing a single news source (extraction phase output)."""
 
     country: str
     media_name: str
@@ -80,7 +80,7 @@ class MediaComparison(BaseModel):
 
 
 class AggregationOutput(BaseModel):
-    """Final aggregated output (reduce phase output)."""
+    """Final aggregated output (aggregation phase output)."""
 
     topic: str
     total_sources_checked: int
