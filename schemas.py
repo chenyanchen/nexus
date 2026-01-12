@@ -17,6 +17,16 @@ class SelectedSource(BaseModel):
     )
 
 
+class NewsSource(BaseModel):
+    """A news source available in the global catalog."""
+
+    country: str = Field(
+        description="Country or organization (e.g., 'United States', 'United Nations')"
+    )
+    media_name: str = Field(description="Name of the media outlet")
+    url: str = Field(description="Official homepage URL")
+
+
 class PlanningOutput(BaseModel):
     """Output from the planning agent that selects relevant sources."""
 
