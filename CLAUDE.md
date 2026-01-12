@@ -1,10 +1,14 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides technical guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## Development Workflow
 
-Nexus is an AI-driven news aggregator that orchestrates LLMs to ingest, cross-reference, and synthesize multi-source reporting into structured, unbiased event summaries. The system prevents cognitive bias by autonomously gathering diverse viewpoints from global news sources.
+1. **Make changes**: Edit code files as needed
+2. **Check syntax**: Run `python -m py_compile <file>` to verify syntax
+3. **Run tests**: Execute test suite (Note: Testing infrastructure not yet configured)
+4. **Lint before commit**: Format code with `uv run ruff format`
+5. **Commit**: Write conventional commit message (`feat:`, `fix:`, etc.) and commit changes
 
 ## Architecture
 
@@ -18,11 +22,13 @@ Nexus is an AI-driven news aggregator that orchestrates LLMs to ingest, cross-re
 The pipeline uses **three separate specialized agents** to implement the map-reduce pattern:
 
 1. **Planning Agent** (no tools)
+
    - Selects 10-12 most relevant sources from available list
    - Returns `PlanningOutput` with structured source selections
    - Minimal context: only source list in, selection list out
 
 2. **Execution Agents** (with Playwright tools) - EXTRACTION PHASE (map pattern)
+
    - Each source processed by independent agent instance
    - Fresh context per source (previous browsing history not retained)
    - Returns `SourceProcessingResult` with structured article extraction
@@ -34,6 +40,7 @@ The pipeline uses **three separate specialized agents** to implement the map-red
    - Returns `AggregationOutput` with final markdown-ready data
 
 **Context Management Strategy:**
+
 - Planning phase: ~10KB (source list only)
 - Each extraction execution: ~20-50KB (single site, fresh context)
 - Aggregation phase: ~30KB (structured JSON only, no HTML/screenshots)
@@ -47,50 +54,12 @@ The pipeline uses **three separate specialized agents** to implement the map-red
 - **DeepSeek**: LLM model for agent reasoning and text generation
 - **Python 3.12**: Required runtime version
 
-### Key Dependencies
-
-- `langchain>=1.2.0`: Agent framework
-- `langchain-deepseek>=1.0.1`: DeepSeek model integration
-- `langchain-mcp-adapters>=0.2.1`: Bridges MCP tools to LangChain
-- Node.js + npx: Required for Playwright MCP server
-
-## Development Commands
-
-### Environment Setup
-
-```bash
-# Install dependencies (recommended method)
-uv sync
-```
-
-### Running the Application
-
-```bash
-# Run the extraction and aggregation pipeline
-python main.py
-```
-
-**Prerequisites**: Node.js must be installed and available in PATH for `npx @playwright/mcp@latest` to work.
-
-### Configuration
-
-- Environment variables should be used for API keys and credentials (e.g., DEEPSEEK_API_KEY)
-- Edit `topic` variable in `main.py` to analyze different news events
-- Modify `GLOBAL_SOURCES` list to add/remove news sources
-- Adjust `batch_size` in `extract_from_sources()` based on your system resources (default: 3)
-
 ## Code Style
 
 - Python 3.12 with 4-space indentation (PEP 8)
 - `snake_case` for functions/variables, `CamelCase` for classes
 - Prefer small, focused async functions when extending agent capabilities
 - Commit messages follow conventional style: `feat:`, `fix:`, etc.
-
-## Output Structure
-
-- `outputs/`: General artifacts directory
-- `news_aggregator_output/`: Contains generated markdown reports with timestamps (e.g., `report_1767847709.md`)
-- Output format: Markdown tables comparing country/organization, media source, article links, and core viewpoints
 
 ## Important Notes
 
@@ -118,7 +87,8 @@ When modifying agent prompts, always specify `config={"response_format": SchemaC
 ## Future Extension Points
 
 When adding new functionality:
+
 - Keep MCP client initialization logic in separate async functions
 - Add new tool integrations through MCP adapters rather than direct imports
 - Consider breaking down large prompts into configurable templates
-- Output handlers should write to `outputs/` or `news_aggregator_output/` directories
+- Output handlers should write to `runs/`
