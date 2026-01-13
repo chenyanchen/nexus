@@ -8,8 +8,11 @@ Architecture:
 
 import asyncio
 import json
+import logging
+import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from langchain.agents import create_agent
 from langchain.messages import HumanMessage, SystemMessage
@@ -17,7 +20,34 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_mcp_adapters.tools import load_mcp_tools
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from pydantic import ValidationError
 
+from agents import (
+    create_aggregation_agent,
+    create_extraction_agent,
+    create_planning_agent,
+)
+from extraction_core import (
+    create_error_result,
+    create_success_result,
+    handle_extraction_error,
+    validate_agent_response,
+)
+from logging_utils import (
+    log_agent_call,
+    log_batch_complete,
+    log_batch_start,
+    log_phase_complete,
+    log_phase_start,
+    save_phase_output,
+    setup_phase_logging,
+)
+from mcp_session import create_mcp_session
+from prompts import (
+    aggregation_chat_prompt_template,
+    extraction_chat_prompt_template,
+    planning_chat_prompt_template,
+)
 from schemas import (
     AggregationOutput,
     ArticleExtraction,
@@ -28,45 +58,26 @@ from schemas import (
     SourceProcessingResult,
 )
 
+# fmt: off
 # Global news sources list
 GLOBAL_SOURCES: list[NewsSource] = [
-    NewsSource(
-        country="联合国", media_name="联合国新闻网", url="https://news.un.org/en/"
-    ),
+    NewsSource(country="联合国", media_name="联合国新闻网", url="https://news.un.org/en/"),
     NewsSource(country="美国", media_name="CNN", url="https://edition.cnn.com/"),
     NewsSource(country="美国", media_name="AP", url="https://www.ap.org/"),
     NewsSource(country="俄罗斯", media_name="RT", url="https://www.rt.com/"),
     NewsSource(country="俄罗斯", media_name="TASS", url="https://tass.com/"),
     NewsSource(country="德国", media_name="Die Zeit", url="https://www.zeit.de/index"),
-    NewsSource(
-        country="英国", media_name="Telegraph", url="https://www.telegraph.co.uk/"
-    ),
-    NewsSource(
-        country="法国", media_name="France 24", url="https://www.france24.com/en/"
-    ),
+    NewsSource(country="英国", media_name="Telegraph", url="https://www.telegraph.co.uk/"),
+    NewsSource(country="法国", media_name="France 24", url="https://www.france24.com/en/"),
     NewsSource(country="日本", media_name="NHK", url="https://www3.nhk.or.jp/news/"),
     NewsSource(country="韩国", media_name="Yonhap", url="https://en.yna.co.kr/"),
     NewsSource(country="意大利", media_name="ANSA", url="https://www.ansa.it/english"),
     NewsSource(country="加拿大", media_name="CTV News", url="https://www.ctvnews.ca/"),
-    NewsSource(
-        country="巴西",
-        media_name="Folha de S.Paulo",
-        url="https://www.folha.uol.com.br/",
-    ),
-    NewsSource(
-        country="以色列",
-        media_name="Times of Israel",
-        url="https://www.timesofisrael.com/",
-    ),
+    NewsSource(country="巴西", media_name="Folha de S.Paulo", url="https://www.folha.uol.com.br/"),
+    NewsSource(country="以色列", media_name="Times of Israel", url="https://www.timesofisrael.com/"),
     NewsSource(country="伊朗", media_name="Press TV", url="https://www.presstv.ir/"),
-    NewsSource(
-        country="新加坡", media_name="Mothership.SG", url="https://mothership.sg"
-    ),
-    NewsSource(
-        country="乌克兰",
-        media_name="Kyiv Independent",
-        url="https://kyivindependent.com/",
-    ),
+    NewsSource(country="新加坡", media_name="Mothership.SG", url="https://mothership.sg"),
+    NewsSource(country="乌克兰", media_name="Kyiv Independent", url="https://kyivindependent.com/"),
 ]
 
 
@@ -85,238 +96,192 @@ def format_sources_for_planning(sources: list[NewsSource]) -> str:
     return "\n".join(lines)
 
 
-planning_system_prompt = SystemMessage("""You are a media analysis expert selecting news sources.
-
-Task: Select 10-12 most relevant news sources for the topic.
-
-Selection criteria:
-1. Geographic diversity (different regions/perspectives)
-2. Political diversity (different political leanings)
-3. Reliability (established mainstream sources)
-4. Likely to have coverage of this topic
-
-Return your selection as structured output following the PlanningOutput schema.""")
-
-planning_human_prompt = HumanMessage("""Topic: {topic}
-
-{sources}
-
-Select 10-12 sources from the list above that will provide diverse perspectives on this topic.
-
-For each selected source, assign a priority level:
-- high: Major international outlets directly relevant to the topic
-- medium: Regional outlets with valuable perspectives
-- low: Backup sources for additional context""")
-
-planning_chat_prompt_template = ChatPromptTemplate(
-    messages=[planning_system_prompt, planning_human_prompt]
-)
-
-# Extraction phase prompts
-extraction_system_prompt = SystemMessage("""You are a news extraction specialist.
-
-Task: Visit the homepage and find news about the given topic.
-
-Steps:
-1. Navigate to the homepage
-2. Look for headlines/articles about the topic
-3. If found, click to read the article
-4. Extract: headline, article URL, core viewpoint (1-2 sentences)
-5. Return structured output
-
-If no relevant news is found, return found_coverage=false.""")
-
-extraction_human_prompt = HumanMessage("""Visit {url} and search for news about: {topic}
-
-Only look at the homepage - don't navigate deep into the site.""")
-
-extraction_chat_prompt_template = ChatPromptTemplate(
-    messages=[extraction_system_prompt, extraction_human_prompt]
-)
-
-# Aggregation phase prompts
-aggregation_system_prompt = SystemMessage("""You are a media analysis synthesizer.
-
-Task: Aggregate extracted articles into a comparison table and summary.
-
-Requirements:
-1. Create comparison table sorted by relevance/importance
-2. Write 2-3 sentence summary highlighting key patterns, differences, or consensus
-3. Return structured output following AggregationOutput schema""")
-
-aggregation_human_prompt = HumanMessage("""Topic: {topic}
-
-Extracted articles from {source_count} sources:
-{results_json}
-
-Create final aggregation with comparison table and summary.""")
-
-aggregation_chat_prompt_template = ChatPromptTemplate(
-    messages=[aggregation_system_prompt, aggregation_human_prompt]
-)
-
-
-async def planning_phase(topic: str) -> PlanningOutput:
+async def planning_phase(
+    topic: str, logger: logging.Logger, run_dir: Path
+) -> PlanningOutput:
     """Phase 1: Select relevant sources without browser tools (no context bloat)."""
-    print(f"\n=== PLANNING PHASE ===")
-    print(f"Topic: {topic}")
+    start_time = time.time()
 
-    agent = create_agent(
-        model="deepseek-chat",
-        tools=[],  # No tools needed for planning
-        response_format=PlanningOutput,
-        debug=True,
-    )
+    log_phase_start(logger, "planning", {"topic": topic})
+
+    agent = create_planning_agent()
 
     sources_formatted = format_sources_for_planning(GLOBAL_SOURCES)
-    response = await agent.ainvoke(
-        planning_chat_prompt_template.invoke(
-            {"topic": topic, "sources": sources_formatted}
-        )
-    )
+    input_data = {"topic": topic, "sources": sources_formatted}
+    response = await agent.ainvoke(planning_chat_prompt_template.invoke(input_data))
 
     planning_output: PlanningOutput = response["structured_response"]
-    print(f"Selected {len(planning_output.selected_sources)} sources")
-    print(f"Rationale: {planning_output.rationale}")
+    duration_ms = (time.time() - start_time) * 1000
+
+    log_agent_call(
+        logger,
+        "planning",
+        None,
+        input_data,
+        response,
+        None,
+        duration_ms,
+    )
+
+    log_phase_complete(
+        logger,
+        "planning",
+        {
+            "sources_selected": len(planning_output.selected_sources),
+            "rationale": planning_output.rationale,
+        },
+    )
+
+    save_phase_output(run_dir, "planning", "output", planning_output)
 
     return planning_output
 
 
 async def extract_from_source(
-    source: SelectedSource, topic: str, session: ClientSession
+    source: SelectedSource,
+    topic: str,
+    session: ClientSession,
+    logger: logging.Logger,
+    run_dir: Path,
 ) -> SourceProcessingResult:
     """Extraction phase: Process a single source with fresh agent context."""
-    print(f"\n--- Processing: {source.media_name} ({source.country}) ---")
+    start_time = time.time()
+    response = None
+
+    logger.info(
+        f"Processing {source.media_name}",
+        extra={
+            "source": source.media_name,
+            "country": source.country,
+            "url": source.url,
+        },
+    )
 
     try:
-        tools = await load_mcp_tools(session)
+        agent = await create_extraction_agent(session, logger=logger)
 
-        agent = create_agent(
-            model="deepseek-chat",
-            tools=tools,
-            response_format=ArticleExtraction,
-            debug=True,
+        input_data = {"url": source.url, "topic": topic}
+        response = await agent.ainvoke(extraction_chat_prompt_template.invoke(input_data))
+
+        article = validate_agent_response(response, source, logger)
+
+        return create_success_result(
+            source, article, response, topic, start_time, logger, run_dir
         )
 
-        response = await agent.ainvoke(
-            extraction_chat_prompt_template.invoke({"url": source.url, "topic": topic})
-        )
-
-        # Get structured output
-        article: ArticleExtraction = response["structured_response"]
-
-        result = SourceProcessingResult(
-            country=source.country,
-            media_name=source.media_name,
-            homepage_url=source.url,
-            found_coverage=True,
-            article=article,
-        )
-
-        print(f"✓ Found: {article.headline}")
-        return result
-
-    except Exception as e:
-        print(f"✗ Error: {str(e)}")
-        return SourceProcessingResult(
-            country=source.country,
-            media_name=source.media_name,
-            homepage_url=source.url,
-            found_coverage=False,
-            error=str(e),
+    except (KeyError, ValidationError, Exception) as e:
+        return handle_extraction_error(
+            e, source, topic, start_time, logger, run_dir, response
         )
 
 
 async def extract_from_sources(
-    sources: list[SelectedSource], topic: str
+    sources: list[SelectedSource],
+    topic: str,
+    logger: logging.Logger,
+    run_dir: Path,
 ) -> list[SourceProcessingResult]:
     """Extraction phase: Process sources in small batches to manage resources."""
-    print(f"\n=== EXTRACTION PHASE: Processing {len(sources)} sources ===")
+    log_phase_start(
+        logger,
+        "extraction",
+        {"total_sources": len(sources), "topic": topic},
+    )
 
     all_results = []
 
-    # Process in batches of 3 to avoid too many concurrent browser instances
     batch_size = 3
+    total_batches = (len(sources) - 1) // batch_size + 1
+
     for i in range(0, len(sources), batch_size):
         batch = sources[i : i + batch_size]
-        print(f"\nBatch {i // batch_size + 1}/{(len(sources) - 1) // batch_size + 1}")
+        batch_num = i // batch_size + 1
 
-        # Create fresh MCP session for each batch
-        server_parameters = StdioServerParameters(
-            command="npx",
-            args=["@playwright/mcp@latest"],
+        log_batch_start(
+            logger,
+            batch_num,
+            total_batches,
+            [s.media_name for s in batch],
         )
 
-        async with stdio_client(server=server_parameters) as (reader, writer):
-            async with ClientSession(
-                read_stream=reader, write_stream=writer
-            ) as session:
-                await session.initialize()
+        async with create_mcp_session() as session:
+            tasks = [
+                extract_from_source(source, topic, session, logger, run_dir)
+                for source in batch
+            ]
+            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                # Process batch sources concurrently
-                tasks = [
-                    extract_from_source(source, topic, session) for source in batch
-                ]
-                batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+            for idx, result in enumerate(batch_results):
+                if isinstance(result, Exception):
+                    batch_results[idx] = SourceProcessingResult(
+                        country=batch[idx].country,
+                        media_name=batch[idx].media_name,
+                        homepage_url=batch[idx].url,
+                        found_coverage=False,
+                        error=str(result),
+                    )
 
-                # Handle exceptions
-                for idx, result in enumerate(batch_results):
-                    if isinstance(result, Exception):
-                        batch_results[idx] = SourceProcessingResult(
-                            country=batch[idx].country,
-                            media_name=batch[idx].media_name,
-                            homepage_url=batch[idx].url,
-                            found_coverage=False,
-                            error=str(result),
-                        )
+            log_batch_complete(logger, batch_num, batch_results)
 
-                all_results.extend(batch_results)
+            all_results.extend(batch_results)
 
-        # Small delay between batches
         if i + batch_size < len(sources):
             await asyncio.sleep(2)
 
     successful = sum(1 for r in all_results if r.found_coverage)
-    print(
-        f"\n=== EXTRACTION PHASE COMPLETE: {successful}/{len(all_results)} sources found coverage ==="
+
+    log_phase_complete(
+        logger,
+        "extraction",
+        {
+            "total_sources": len(all_results),
+            "successful": successful,
+            "failed": len(all_results) - successful,
+        },
     )
+
+    save_phase_output(run_dir, "extraction", "all_results", all_results)
 
     return all_results
 
 
 async def aggregate_results(
-    topic: str, extraction_results: list[SourceProcessingResult]
+    topic: str,
+    extraction_results: list[SourceProcessingResult],
+    logger: logging.Logger,
+    run_dir: Path,
 ) -> AggregationOutput:
     """Aggregation phase: Aggregate all results without browser tools (clean context)."""
-    print(f"\n=== AGGREGATION PHASE: Aggregating results ===")
+    start_time = time.time()
 
-    # Filter to only successful extractions
+    log_phase_start(
+        logger,
+        "aggregation",
+        {
+            "topic": topic,
+            "extraction_count": len(extraction_results),
+        },
+    )
+
     successful_results = [
         r for r in extraction_results if r.found_coverage and r.article
     ]
 
-    # Convert to JSON for agent input (structured data only, no browser history)
     results_json = json.dumps(
         [r.model_dump() for r in successful_results],
         indent=2,
         ensure_ascii=False,
     )
 
-    agent = create_agent(
-        model="deepseek-chat",
-        tools=[],  # No tools needed for aggregation
-        response_format=AggregationOutput,
-        debug=True,
-    )
+    agent = create_aggregation_agent()
 
+    input_data = {
+        "topic": topic,
+        "source_count": len(successful_results),
+        "results_json": results_json,
+    }
     response = await agent.ainvoke(
-        aggregation_chat_prompt_template.invoke(
-            {
-                "topic": topic,
-                "source_count": len(successful_results),
-                "results_json": results_json,
-            }
-        )
+        aggregation_chat_prompt_template.invoke(input_data)
     )
 
     aggregation: AggregationOutput = response["structured_response"]
@@ -325,22 +290,38 @@ async def aggregate_results(
     aggregation.sources_with_coverage = len(successful_results)
     aggregation.processing_timestamp = datetime.now().isoformat()
 
-    print(
-        f"✓ Aggregation complete: {len(aggregation.comparison_table)} articles in table"
+    duration_ms = (time.time() - start_time) * 1000
+
+    log_agent_call(
+        logger,
+        "aggregation",
+        None,
+        input_data,
+        response,
+        None,
+        duration_ms,
     )
+
+    log_phase_complete(
+        logger,
+        "aggregation",
+        {
+            "articles_in_table": len(aggregation.comparison_table),
+            "summary_length": len(aggregation.summary),
+        },
+    )
+
+    save_phase_output(run_dir, "aggregation", "output", aggregation)
 
     return aggregation
 
 
-def save_output(output: AggregationOutput) -> Path:
+def save_output(
+    output: AggregationOutput, logger: logging.Logger, run_dir: Path
+) -> Path:
     """Save aggregation output to markdown file."""
-    output_dir = Path("runs")
-    output_dir.mkdir(exist_ok=True)
+    output_file = run_dir / "report.md"
 
-    timestamp = int(datetime.now().timestamp())
-    output_file = output_dir / f"report_{timestamp}.md"
-
-    # Generate markdown
     markdown = f"""# News Aggregation Report: {output.topic}
 
 **Generated:** {output.processing_timestamp}
@@ -361,30 +342,32 @@ def save_output(output: AggregationOutput) -> Path:
         markdown += f"| {row.country} | {row.media_name} | [{row.article_title}]({row.article_url}) | {row.core_viewpoint} |\n"
 
     output_file.write_text(markdown, encoding="utf-8")
-    print(f"\n✓ Report saved to: {output_file}")
+
+    logger.info(
+        f"Report saved to {output_file}",
+        extra={"output_file": str(output_file)},
+    )
 
     return output_file
 
 
 async def main():
     """Main orchestration: Planning → Extraction → Aggregation."""
-    topic = "委内瑞拉总统被美国逮捕"  # Venezuela president arrested by US
+    topic = "委内瑞拉总统被美国逮捕"
 
-    # Phase 1: Planning (no browser tools, minimal context)
-    planning_output = await planning_phase(topic)
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    logger, run_dir = setup_phase_logging(run_id, "full_pipeline")
 
-    # Phase 2: Extraction (each source processed independently with fresh context)
+    logger.info(f"Starting pipeline for topic: {topic}", extra={"topic": topic})
+
+    planning_output = await planning_phase(topic, logger, run_dir)
     extraction_results = await extract_from_sources(
-        planning_output.selected_sources, topic
+        planning_output.selected_sources, topic, logger, run_dir
     )
+    final_output = await aggregate_results(topic, extraction_results, logger, run_dir)
+    save_output(final_output, logger, run_dir)
 
-    # Phase 3: Aggregation (no browser tools, only structured data)
-    final_output = await aggregate_results(topic, extraction_results)
-
-    # Save output
-    save_output(final_output)
-
-    print("\n=== PIPELINE COMPLETE ===")
+    logger.info("Pipeline complete", extra={"run_id": run_id})
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """Structured output schemas for all agents in the news aggregator pipeline."""
 
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 
 class SelectedSource(BaseModel):
@@ -44,14 +44,47 @@ class PlanningOutput(BaseModel):
 class ArticleExtraction(BaseModel):
     """Extracted information from a single news article."""
 
-    headline: str = Field(description="Article headline or title")
-    article_url: str = Field(description="Direct URL to the article")
+    headline: str = Field(
+        description="Article headline or title", min_length=5, max_length=500
+    )
+    article_url: HttpUrl = Field(
+        description="Direct URL to the article (must be valid HTTP/HTTPS URL)"
+    )
     core_viewpoint: str = Field(
-        description="The media's core viewpoint in 1-2 sentences, focusing on their perspective or stance"
+        description="The media's core viewpoint in 1-2 sentences, focusing on their perspective or stance",
+        min_length=20,
+        max_length=1000,
     )
     publication_date: str | None = Field(
         default=None, description="Publication date if available (YYYY-MM-DD format)"
     )
+
+    @field_validator("headline", "core_viewpoint")
+    @classmethod
+    def reject_empty_and_placeholders(cls, v: str, info) -> str:
+        """Ensure fields are not empty or placeholder text."""
+        if not v or not v.strip():
+            raise ValueError(f"{info.field_name} cannot be empty or whitespace")
+
+        stripped = v.strip()
+        placeholders = ["n/a", "none", "undefined", "null", ""]
+        if stripped.lower() in placeholders:
+            raise ValueError(
+                f"{info.field_name} cannot be placeholder text like '{stripped}'"
+            )
+
+        return stripped
+
+    @field_validator("core_viewpoint")
+    @classmethod
+    def validate_viewpoint_length(cls, v: str) -> str:
+        """Ensure viewpoint contains meaningful content (at least 10 words)."""
+        word_count = len(v.split())
+        if word_count < 10:
+            raise ValueError(
+                f"Core viewpoint too short ({word_count} words). Need at least 10 words for meaningful analysis."
+            )
+        return v
 
 
 class SourceProcessingResult(BaseModel):
