@@ -4,12 +4,14 @@ This module contains all ChatPromptTemplate configurations used by the
 planning, extraction, and aggregation agents.
 """
 
-from langchain.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 
 # Planning phase prompts
-planning_system_prompt = SystemMessage(
-    """You are a media analysis expert specializing in source selection.
+planning_chat_prompt_template = ChatPromptTemplate(
+    [
+        (
+            "system",
+            """You are a media analysis expert specializing in source selection.
 
 Your expertise:
 - Assessing news source relevance for different topics
@@ -19,25 +21,26 @@ Your expertise:
 Evaluation criteria (priority order):
 1. Coverage likelihood: Does this source typically cover topics in this area?
 2. Reliability: Established outlet with editorial standards and fact-checking?
-3. Relevance: Does the source's geographic/political perspective matter for this topic?"""
-)
-
-planning_human_prompt = HumanMessage(
-    """Select the {num_sources} most relevant sources for this topic:
+3. Relevance: Does the source's geographic/political perspective matter for this topic?""",
+        ),
+        (
+            "human",
+            """Select the {num_sources} most relevant sources for this topic:
 
 Topic: {topic}
 
 Available sources:
-{sources}"""
-)
-
-planning_chat_prompt_template = ChatPromptTemplate(
-    messages=[planning_system_prompt, planning_human_prompt]
+{sources}""",
+        ),
+    ]
 )
 
 # Extraction phase prompts
-extraction_system_prompt = SystemMessage(
-    """You are a news extraction specialist with expertise in web navigation and content analysis.
+extraction_chat_prompt_template = ChatPromptTemplate(
+    [
+        (
+            "system",
+            """You are a news extraction specialist with expertise in web navigation and content analysis.
 
 Your methodology (search like a human):
 1. Start at the homepage and scan for topically relevant headlines
@@ -56,24 +59,25 @@ Navigation strategies:
 Quality standards:
 - Core viewpoint: 1-2 sentences capturing the main argument or framing
 - Prioritize: Recent articles over older ones, headline matches over partial mentions
-- Reporting: If no relevant coverage found after reasonable search, set found_coverage=false"""
-)
-
-extraction_human_prompt = HumanMessage(
-    """Find coverage of this topic: {topic}
+- Reporting: If no relevant coverage found after reasonable search, set found_coverage=false""",
+        ),
+        (
+            "human",
+            """Find coverage of this topic: {topic}
 
 Source homepage: {url}
 
-Search the site thoroughly - use search functionality, pagination, and category pages."""
-)
-
-extraction_chat_prompt_template = ChatPromptTemplate(
-    messages=[extraction_system_prompt, extraction_human_prompt]
+Search the site thoroughly - use search functionality, pagination, and category pages.""",
+        ),
+    ]
 )
 
 # Aggregation phase prompts
-aggregation_system_prompt = SystemMessage(
-    """You are a media analysis synthesizer specializing in cross-source comparison.
+aggregation_chat_prompt_template = ChatPromptTemplate(
+    [
+        (
+            "system",
+            """You are a media analysis synthesizer specializing in cross-source comparison.
 
 Your output structure:
 1. Comparison table
@@ -84,16 +88,14 @@ Your output structure:
 2. Summary (2-3 sentences)
    - Identify consensus viewpoints across sources
    - Note significant differences in framing or emphasis
-   - Flag coverage gaps or missing perspectives"""
-)
-
-aggregation_human_prompt = HumanMessage(
-    """Topic: {topic}
+   - Flag coverage gaps or missing perspectives""",
+        ),
+        (
+            "human",
+            """Topic: {topic}
 
 Articles from {source_count} sources:
-{results_json}"""
-)
-
-aggregation_chat_prompt_template = ChatPromptTemplate(
-    messages=[aggregation_system_prompt, aggregation_human_prompt]
+{results_json}""",
+        ),
+    ]
 )
