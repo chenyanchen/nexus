@@ -97,17 +97,24 @@ def format_sources_for_planning(sources: list[NewsSource]) -> str:
 
 
 async def planning_phase(
-    topic: str, logger: logging.Logger, run_dir: Path
+    topic: str,
+    logger: logging.Logger,
+    run_dir: Path,
+    num_sources: int = 1,
 ) -> PlanningOutput:
     """Phase 1: Select relevant sources without browser tools (no context bloat)."""
     start_time = time.time()
 
-    log_phase_start(logger, "planning", {"topic": topic})
+    log_phase_start(logger, "planning", {"topic": topic, "num_sources": num_sources})
 
     agent = create_planning_agent()
 
     sources_formatted = format_sources_for_planning(GLOBAL_SOURCES)
-    input_data = {"topic": topic, "sources": sources_formatted}
+    input_data = {
+        "topic": topic,
+        "sources": sources_formatted,
+        "num_sources": num_sources,
+    }
     response = await agent.ainvoke(planning_chat_prompt_template.invoke(input_data))
 
     planning_output: PlanningOutput = response["structured_response"]
@@ -360,7 +367,7 @@ async def main():
 
     logger.info(f"Starting pipeline for topic: {topic}", extra={"topic": topic})
 
-    planning_output = await planning_phase(topic, logger, run_dir)
+    planning_output = await planning_phase(topic, logger, run_dir, num_sources=1)
     extraction_results = await extract_from_sources(
         planning_output.selected_sources, topic, logger, run_dir
     )

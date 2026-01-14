@@ -1,6 +1,5 @@
-"""Structured output schemas for all agents in the news aggregator pipeline."""
+"""Structured output schemas for all agents in news aggregator pipeline."""
 
-from typing import Literal
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 
@@ -12,9 +11,6 @@ class SelectedSource(BaseModel):
     )
     media_name: str = Field(description="Name of the media outlet")
     url: str = Field(description="URL to visit")
-    priority: Literal["high", "medium", "low"] = Field(
-        description="Priority based on relevance to the topic"
-    )
 
 
 class NewsSource(BaseModel):
