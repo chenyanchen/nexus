@@ -44,9 +44,9 @@ from logging_utils import (
 )
 from mcp_session import create_mcp_session
 from prompts import (
-    aggregation_chat_prompt_template,
-    extraction_chat_prompt_template,
     planning_chat_prompt_template,
+    extraction_chat_prompt_template,
+    aggregation_chat_prompt_template,
 )
 from schemas import (
     AggregationOutput,
@@ -165,7 +165,7 @@ async def extract_from_source(
     )
 
     try:
-        agent = await create_extraction_agent(session, logger=logger)
+        agent = await create_extraction_agent(session)
 
         input_data = {"url": source.url, "topic": topic}
         response = await agent.ainvoke(extraction_chat_prompt_template.invoke(input_data))

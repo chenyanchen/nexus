@@ -5,7 +5,7 @@ This file provides technical guidance to Claude Code (claude.ai/code) when worki
 ## Development Workflow
 
 1. **Make changes**: Edit code files as needed
-2. **Check syntax**: Run `python -m py_compile <file>` to verify syntax
+2. **Check syntax**: Run `uv run python -m py_compile main.py <file>` to verify syntax
 3. **Run tests**: Execute test suite (Note: Testing infrastructure not yet configured)
 4. **Lint before commit**: Format code with `uv run ruff format`
 5. **Commit**: Write conventional commit message (`feat:`, `fix:`, etc.) and commit changes

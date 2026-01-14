@@ -17,7 +17,7 @@ from schemas import ArticleExtraction, PlanningOutput, AggregationOutput
 def create_planning_agent(
     *,
     model: str = "deepseek-chat",
-    response_format: type = PlanningOutput,
+    debug: bool = False,
 ) -> Any:
     """Create a planning agent without tools.
 
@@ -26,7 +26,7 @@ def create_planning_agent(
 
     Args:
         model: Model identifier (default: "deepseek-chat")
-        response_format: Pydantic model for structured output (default: PlanningOutput)
+        debug: Enable debug mode for agent (default: False)
 
     Returns:
         Configured agent ready for invocation
@@ -38,7 +38,8 @@ def create_planning_agent(
     agent = create_agent(
         model=model,
         tools=[],  # No tools needed for planning
-        response_format=response_format,
+        response_format=PlanningOutput,
+        debug=debug,
     )
 
     return agent
@@ -48,9 +49,7 @@ async def create_extraction_agent(
     session: ClientSession,
     *,
     model: str = "deepseek-chat",
-    response_format: type = ArticleExtraction,
     debug: bool = False,
-    logger: logging.Logger | None = None,
 ) -> Any:
     """Create an extraction agent with MCP tools.
 
@@ -62,8 +61,7 @@ async def create_extraction_agent(
         session: Active MCP ClientSession
         model: Model identifier (default: "deepseek-chat")
         response_format: Pydantic model for structured output
-        debug: Enable debug mode for agent (logs tool calls)
-        logger: Optional logger for verbose output
+        debug: Enable debug mode for agent (default: False)
 
     Returns:
         Configured agent ready for invocation
@@ -73,23 +71,14 @@ async def create_extraction_agent(
             agent = await create_extraction_agent(session, debug=True)
             response = await agent.ainvoke(prompt)
     """
-    if logger:
-        logger.debug("Loading MCP tools from session")
-
     tools = await load_mcp_tools(session)
-
-    if logger:
-        logger.debug(f"Loaded {len(tools)} tools")
 
     agent = create_agent(
         model=model,
         tools=tools,
-        response_format=response_format,
+        response_format=ArticleExtraction,
         debug=debug,
     )
-
-    if logger:
-        logger.debug(f"Created agent with model={model}, debug={debug}")
 
     return agent
 
@@ -97,7 +86,7 @@ async def create_extraction_agent(
 def create_aggregation_agent(
     *,
     model: str = "deepseek-chat",
-    response_format: type = AggregationOutput,
+    debug: bool = False,
 ) -> Any:
     """Create an aggregation agent without tools.
 
@@ -106,7 +95,7 @@ def create_aggregation_agent(
 
     Args:
         model: Model identifier (default: "deepseek-chat")
-        response_format: Pydantic model for structured output (default: AggregationOutput)
+        debug: Enable debug mode for agent (default: False)
 
     Returns:
         Configured agent ready for invocation
@@ -118,7 +107,8 @@ def create_aggregation_agent(
     agent = create_agent(
         model=model,
         tools=[],  # No tools needed for aggregation
-        response_format=response_format,
+        response_format=AggregationOutput,
+        debug=debug,
     )
 
     return agent
