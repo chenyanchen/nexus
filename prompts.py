@@ -58,6 +58,10 @@ Navigation strategies:
 
 Quality standards:
 - Core viewpoint: 1-2 sentences capturing the main argument or framing
+- Sentiment: Classify the article's stance toward the topic:
+  * positive: supportive, favorable, optimistic framing
+  * negative: critical, opposing, pessimistic framing
+  * neutral: balanced, factual, objective reporting
 - Prioritize: Recent articles over older ones, headline matches over partial mentions
 - Reporting: If no relevant coverage found after reasonable search, set found_coverage=false""",
         ),

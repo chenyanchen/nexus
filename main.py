@@ -6,10 +6,10 @@ Architecture:
 - Aggregation phase: Synthesizes results into comparison table
 """
 
+import argparse
 import asyncio
 import json
 import logging
-import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -276,12 +276,12 @@ def save_output(
 
 ## Media Comparison Table
 
-| Country/Organization | Media Name | Article | Core Viewpoint |
-| -------------------- | ---------- | ------- | -------------- |
+| Country/Organization | Media Name | Article | Sentiment | Core Viewpoint |
+| -------------------- | ---------- | ------- | --------- | -------------- |
 """
 
     for row in output.comparison_table:
-        markdown += f"| {row.country} | {row.media_name} | [{row.article_title}]({row.article_url}) | {row.core_viewpoint} |\n"
+        markdown += f"| {row.country} | {row.media_name} | [{row.article_title}]({row.article_url}) | {row.sentiment} | {row.core_viewpoint} |\n"
 
     output_file.write_text(markdown, encoding="utf-8")
 
@@ -293,11 +293,41 @@ def save_output(
     return output_file
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="AI-powered news aggregator that synthesizes multi-source reporting",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python main.py --topic "Climate change summit"
+  python main.py -t "US election" -n 5
+
+Environment variables:
+  DEEPSEEK_API_KEY  Required. API key for DeepSeek LLM
+        """,
+    )
+    parser.add_argument(
+        "--topic",
+        "-t",
+        required=True,
+        help="News topic to search for",
+    )
+    parser.add_argument(
+        "--num-sources",
+        "-n",
+        type=int,
+        default=DEFAULT_NUM_SOURCES,
+        help=f"Number of sources to process (default: {DEFAULT_NUM_SOURCES})",
+    )
+    return parser.parse_args()
+
+
 async def main():
     """Main orchestration: Planning → Extraction → Aggregation."""
-    # Load configuration from environment
-    topic = os.getenv("NEWS_TOPIC", "委内瑞拉总统被美国逮捕")
-    num_sources = int(os.getenv("NEWS_NUM_SOURCES", str(DEFAULT_NUM_SOURCES)))
+    args = parse_args()
+    topic = args.topic
+    num_sources = args.num_sources
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger, run_dir = setup_phase_logging(run_id, "pipeline")

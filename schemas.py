@@ -1,5 +1,7 @@
 """Structured output schemas for all agents in news aggregator pipeline."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 # Schema validation constants
@@ -62,6 +64,9 @@ class ArticleExtraction(BaseModel):
         min_length=MIN_VIEWPOINT_LENGTH,
         max_length=MAX_VIEWPOINT_LENGTH,
     )
+    sentiment: Literal["positive", "negative", "neutral"] = Field(
+        description="Article's stance toward the topic: positive (supportive/favorable), negative (critical/opposing), or neutral (balanced/factual)"
+    )
     publication_date: str | None = Field(
         default=None, description="Publication date if available (YYYY-MM-DD format)"
     )
@@ -116,6 +121,7 @@ class MediaComparison(BaseModel):
     media_name: str
     article_title: str
     article_url: str
+    sentiment: str
     core_viewpoint: str
 
 
