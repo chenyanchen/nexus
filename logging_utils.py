@@ -133,7 +133,9 @@ def log_agent_call(
             # Try to serialize to JSON for inspection
             try:
                 if hasattr(structured_resp, "model_dump"):
-                    log_entry["structured_response_data"] = structured_resp.model_dump(mode='json')
+                    log_entry["structured_response_data"] = structured_resp.model_dump(
+                        mode="json"
+                    )
                 else:
                     log_entry["structured_response_data"] = str(structured_resp)
             except Exception as e:
@@ -185,7 +187,7 @@ def _make_json_serializable(obj: Any) -> Any:
 
     elif hasattr(obj, "model_dump"):
         # Pydantic models
-        return obj.model_dump(mode='json')
+        return obj.model_dump(mode="json")
 
     elif isinstance(obj, (str, int, float, bool, type(None))):
         # Primitives
@@ -217,9 +219,9 @@ def save_phase_output(
 
     # Convert Pydantic models to dicts
     if hasattr(data, "model_dump"):
-        data = data.model_dump(mode='json')
+        data = data.model_dump(mode="json")
     elif isinstance(data, list) and data and hasattr(data[0], "model_dump"):
-        data = [item.model_dump(mode='json') for item in data]
+        data = [item.model_dump(mode="json") for item in data]
     # Handle dicts with mixed types (e.g., agent responses)
     elif isinstance(data, dict):
         data = _make_json_serializable(data)
@@ -249,7 +251,7 @@ def append_to_jsonl(
 
     # Make data JSON-serializable
     if hasattr(data, "model_dump"):
-        data = data.model_dump(mode='json')
+        data = data.model_dump(mode="json")
     elif isinstance(data, dict):
         data = _make_json_serializable(data)
 
@@ -293,13 +295,12 @@ def log_extraction_attempt(
         log_entry["error"] = error
 
     level = logging.INFO if found_coverage else logging.WARNING
-    message = (
-        f"✓ {source_name}: Found coverage"
-        if found_coverage
-        else f"✗ {source_name}: No coverage"
-    )
+    status = "found_coverage" if found_coverage else "no_coverage"
+    log_entry["status"] = status
+
+    message = f"{source_name}: {status}"
     if error:
-        message += f" ({error})"
+        message += f" - {error}"
 
     logger.log(level, message, extra=log_entry)
 
@@ -373,60 +374,3 @@ def log_phase_complete(
         "summary": summary_data,
     }
     logger.info(f"{phase.capitalize()} phase complete", extra=log_entry)
-
-
-def log_batch_start(
-    logger: logging.Logger,
-    batch_num: int,
-    total_batches: int,
-    sources: list[str],
-) -> None:
-    """Log the start of a batch in extraction phase.
-
-    Args:
-        logger: Logger instance
-        batch_num: Current batch number (1-indexed)
-        total_batches: Total number of batches
-        sources: List of source names in this batch
-    """
-    log_entry = {
-        "event": "batch_start",
-        "batch_num": batch_num,
-        "total_batches": total_batches,
-        "sources": sources,
-        "source_count": len(sources),
-    }
-    logger.info(
-        f"Batch {batch_num}/{total_batches}: Processing {', '.join(sources)}",
-        extra=log_entry,
-    )
-
-
-def log_batch_complete(
-    logger: logging.Logger,
-    batch_num: int,
-    results: list[Any],
-) -> None:
-    """Log the completion of a batch with results summary.
-
-    Args:
-        logger: Logger instance
-        batch_num: Current batch number
-        results: Batch processing results
-    """
-    successful = sum(
-        1 for r in results if hasattr(r, "found_coverage") and r.found_coverage
-    )
-    failed = len(results) - successful
-
-    log_entry = {
-        "event": "batch_complete",
-        "batch_num": batch_num,
-        "total_in_batch": len(results),
-        "successful": successful,
-        "failed": failed,
-    }
-    logger.info(
-        f"Batch {batch_num} complete: {successful}/{len(results)} successful",
-        extra=log_entry,
-    )

@@ -4,10 +4,11 @@ This module provides functions for validating agent responses, creating
 extraction results, and handling errors uniformly across the pipeline.
 """
 
+import logging
 import time
 import traceback
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -21,9 +22,9 @@ from schemas import ArticleExtraction, SelectedSource, SourceProcessingResult
 
 
 def validate_agent_response(
-    response: Dict[str, Any],
+    response: dict[str, Any],
     source: SelectedSource,
-    logger=None,
+    logger: logging.Logger | None = None,
 ) -> ArticleExtraction:
     """Validate agent response contains structured_response.
 
@@ -102,9 +103,9 @@ def handle_extraction_error(
     source: SelectedSource,
     topic: str,
     start_time: float,
-    logger=None,
+    logger: logging.Logger | None = None,
     run_dir: Path | None = None,
-    response: Dict[str, Any] | None = None,
+    response: dict[str, Any] | None = None,
 ) -> SourceProcessingResult:
     """Handle extraction error with logging and result creation.
 
@@ -191,10 +192,10 @@ def handle_extraction_error(
 def create_success_result(
     source: SelectedSource,
     article: ArticleExtraction,
-    response: Dict[str, Any],
+    response: dict[str, Any],
     topic: str,
     start_time: float,
-    logger=None,
+    logger: logging.Logger | None = None,
     run_dir: Path | None = None,
 ) -> SourceProcessingResult:
     """Create successful SourceProcessingResult with logging.
@@ -234,7 +235,7 @@ def create_success_result(
             source.media_name,
             source.url,
             True,
-            article.model_dump(mode='json') if article else None,
+            article.model_dump(mode="json") if article else None,
             None,
         )
 

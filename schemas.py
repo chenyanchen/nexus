@@ -2,6 +2,15 @@
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
+# Schema validation constants
+MIN_PLANNING_SOURCES = 1
+MAX_PLANNING_SOURCES = 15
+MIN_HEADLINE_LENGTH = 5
+MAX_HEADLINE_LENGTH = 500
+MIN_VIEWPOINT_LENGTH = 20
+MAX_VIEWPOINT_LENGTH = 1000
+MIN_VIEWPOINT_WORDS = 10
+
 
 class SelectedSource(BaseModel):
     """A news source selected for processing."""
@@ -29,8 +38,8 @@ class PlanningOutput(BaseModel):
     topic: str = Field(description="The news topic being researched")
     selected_sources: list[SelectedSource] = Field(
         description="List of selected news sources to process",
-        min_length=1,
-        max_length=15,
+        min_length=MIN_PLANNING_SOURCES,
+        max_length=MAX_PLANNING_SOURCES,
     )
     rationale: str = Field(
         description="Brief explanation of selection criteria (max 2 sentences)"
@@ -41,15 +50,17 @@ class ArticleExtraction(BaseModel):
     """Extracted information from a single news article."""
 
     headline: str = Field(
-        description="Article headline or title", min_length=5, max_length=500
+        description="Article headline or title",
+        min_length=MIN_HEADLINE_LENGTH,
+        max_length=MAX_HEADLINE_LENGTH,
     )
     article_url: HttpUrl = Field(
         description="Direct URL to the article (must be valid HTTP/HTTPS URL)"
     )
     core_viewpoint: str = Field(
         description="The media's core viewpoint in 1-2 sentences, focusing on their perspective or stance",
-        min_length=20,
-        max_length=1000,
+        min_length=MIN_VIEWPOINT_LENGTH,
+        max_length=MAX_VIEWPOINT_LENGTH,
     )
     publication_date: str | None = Field(
         default=None, description="Publication date if available (YYYY-MM-DD format)"
@@ -74,11 +85,11 @@ class ArticleExtraction(BaseModel):
     @field_validator("core_viewpoint")
     @classmethod
     def validate_viewpoint_length(cls, v: str) -> str:
-        """Ensure viewpoint contains meaningful content (at least 10 words)."""
+        """Ensure viewpoint contains meaningful content."""
         word_count = len(v.split())
-        if word_count < 10:
+        if word_count < MIN_VIEWPOINT_WORDS:
             raise ValueError(
-                f"Core viewpoint too short ({word_count} words). Need at least 10 words for meaningful analysis."
+                f"Core viewpoint too short ({word_count} words). Need at least {MIN_VIEWPOINT_WORDS} words for meaningful analysis."
             )
         return v
 

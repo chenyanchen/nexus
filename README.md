@@ -36,7 +36,6 @@ Nexus is an AI-driven news aggregator that orchestrates LLMs to ingest, cross-re
 - **API Keys**: Set `DEEPSEEK_API_KEY` environment variable
 - **Topic**: Edit `topic` variable in `main.py` to analyze different news events
 - **News Sources**: Modify `GLOBAL_SOURCES` list in `main.py` to add/remove sources
-- **Batch Size**: Adjust `batch_size` in `extract_from_sources()` based on system resources (default: 3)
 
 ## Usage
 

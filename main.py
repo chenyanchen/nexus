@@ -2,13 +2,14 @@
 
 Architecture:
 - Planning phase: Selects relevant news sources
-- Extraction phase: Scrapes articles from sources in parallel batches
+- Extraction phase: Scrapes articles from sources sequentially
 - Aggregation phase: Synthesizes results into comparison table
 """
 
 import asyncio
 import json
 import logging
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -22,15 +23,12 @@ from agents import (
     create_planning_agent,
 )
 from extraction_core import (
-    create_error_result,
     create_success_result,
     handle_extraction_error,
     validate_agent_response,
 )
 from logging_utils import (
     log_agent_call,
-    log_batch_complete,
-    log_batch_start,
     log_phase_complete,
     log_phase_start,
     save_phase_output,
@@ -44,50 +42,14 @@ from prompts import (
 )
 from schemas import (
     AggregationOutput,
-    ArticleExtraction,
-    MediaComparison,
-    NewsSource,
     PlanningOutput,
     SelectedSource,
     SourceProcessingResult,
 )
+from sources import GLOBAL_SOURCES, format_sources_for_planning
 
-# fmt: off
-# Global news sources list
-GLOBAL_SOURCES: list[NewsSource] = [
-    NewsSource(country="联合国", media_name="联合国新闻网", url="https://news.un.org/en/"),
-    NewsSource(country="美国", media_name="CNN", url="https://edition.cnn.com/"),
-    NewsSource(country="美国", media_name="AP", url="https://www.ap.org/"),
-    NewsSource(country="俄罗斯", media_name="RT", url="https://www.rt.com/"),
-    NewsSource(country="俄罗斯", media_name="TASS", url="https://tass.com/"),
-    NewsSource(country="德国", media_name="Die Zeit", url="https://www.zeit.de/index"),
-    NewsSource(country="英国", media_name="Telegraph", url="https://www.telegraph.co.uk/"),
-    NewsSource(country="法国", media_name="France 24", url="https://www.france24.com/en/"),
-    NewsSource(country="日本", media_name="NHK", url="https://www3.nhk.or.jp/news/"),
-    NewsSource(country="韩国", media_name="Yonhap", url="https://en.yna.co.kr/"),
-    NewsSource(country="意大利", media_name="ANSA", url="https://www.ansa.it/english"),
-    NewsSource(country="加拿大", media_name="CTV News", url="https://www.ctvnews.ca/"),
-    NewsSource(country="巴西", media_name="Folha de S.Paulo", url="https://www.folha.uol.com.br/"),
-    NewsSource(country="以色列", media_name="Times of Israel", url="https://www.timesofisrael.com/"),
-    NewsSource(country="伊朗", media_name="Press TV", url="https://www.presstv.ir/"),
-    NewsSource(country="新加坡", media_name="Mothership.SG", url="https://mothership.sg"),
-    NewsSource(country="乌克兰", media_name="Kyiv Independent", url="https://kyivindependent.com/"),
-]
-
-
-def format_sources_for_planning(sources: list[NewsSource]) -> str:
-    """Format sources as a readable list grouped by country."""
-    by_country: dict[str, list[NewsSource]] = {}
-    for source in sources:
-        by_country.setdefault(source.country, []).append(source)
-
-    lines = ["Available news sources (grouped by country/organization):"]
-    for country, country_sources in sorted(by_country.items()):
-        lines.append(f"\n{country}:")
-        for source in country_sources:
-            lines.append(f"  - {source.media_name}: {source.url}")
-
-    return "\n".join(lines)
+# Pipeline configuration constants
+DEFAULT_NUM_SOURCES = 10
 
 
 async def planning_phase(
@@ -162,7 +124,9 @@ async def extract_from_source(
         agent = await create_extraction_agent(session)
 
         input_data = {"url": source.url, "topic": topic}
-        response = await agent.ainvoke(extraction_chat_prompt_template.invoke(input_data))
+        response = await agent.ainvoke(
+            extraction_chat_prompt_template.invoke(input_data)
+        )
 
         article = validate_agent_response(response, source, logger)
 
@@ -182,52 +146,31 @@ async def extract_from_sources(
     logger: logging.Logger,
     run_dir: Path,
 ) -> list[SourceProcessingResult]:
-    """Extraction phase: Process sources in small batches to manage resources."""
+    """Extraction phase: Process sources sequentially.
+
+    Uses a single MCP session to avoid expensive server restarts.
+    Sources are processed one at a time because Playwright operates on a single page.
+    """
     log_phase_start(
         logger,
         "extraction",
         {"total_sources": len(sources), "topic": topic},
     )
 
-    all_results = []
+    all_results: list[SourceProcessingResult] = []
 
-    batch_size = 3
-    total_batches = (len(sources) - 1) // batch_size + 1
-
-    for i in range(0, len(sources), batch_size):
-        batch = sources[i : i + batch_size]
-        batch_num = i // batch_size + 1
-
-        log_batch_start(
-            logger,
-            batch_num,
-            total_batches,
-            [s.media_name for s in batch],
-        )
-
-        async with create_mcp_session() as session:
-            tasks = [
-                extract_from_source(source, topic, session, logger, run_dir)
-                for source in batch
-            ]
-            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for idx, result in enumerate(batch_results):
-                if isinstance(result, Exception):
-                    batch_results[idx] = SourceProcessingResult(
-                        country=batch[idx].country,
-                        media_name=batch[idx].media_name,
-                        homepage_url=batch[idx].url,
-                        found_coverage=False,
-                        error=str(result),
-                    )
-
-            log_batch_complete(logger, batch_num, batch_results)
-
-            all_results.extend(batch_results)
-
-        if i + batch_size < len(sources):
-            await asyncio.sleep(2)
+    # Process sources sequentially - MCP Playwright operates on single page
+    async with create_mcp_session() as session:
+        for i, source in enumerate(sources):
+            logger.info(
+                f"Processing source {i + 1}/{len(sources)}",
+                extra={
+                    "source": source.media_name,
+                    "progress": f"{i + 1}/{len(sources)}",
+                },
+            )
+            result = await extract_from_source(source, topic, session, logger, run_dir)
+            all_results.append(result)
 
     successful = sum(1 for r in all_results if r.found_coverage)
 
@@ -269,7 +212,7 @@ async def aggregate_results(
     ]
 
     results_json = json.dumps(
-        [r.model_dump(mode='json') for r in successful_results],
+        [r.model_dump(mode="json") for r in successful_results],
         indent=2,
         ensure_ascii=False,
     )
@@ -281,9 +224,7 @@ async def aggregate_results(
         "source_count": len(successful_results),
         "results_json": results_json,
     }
-    response = await agent.ainvoke(
-        aggregation_chat_prompt_template.invoke(input_data)
-    )
+    response = await agent.ainvoke(aggregation_chat_prompt_template.invoke(input_data))
 
     aggregation: AggregationOutput = response["structured_response"]
     aggregation.topic = topic
@@ -354,14 +295,21 @@ def save_output(
 
 async def main():
     """Main orchestration: Planning → Extraction → Aggregation."""
-    topic = "委内瑞拉总统被美国逮捕"
+    # Load configuration from environment
+    topic = os.getenv("NEWS_TOPIC", "委内瑞拉总统被美国逮捕")
+    num_sources = int(os.getenv("NEWS_NUM_SOURCES", str(DEFAULT_NUM_SOURCES)))
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger, run_dir = setup_phase_logging(run_id, "pipeline")
 
-    logger.info(f"Starting pipeline for topic: {topic}", extra={"topic": topic})
+    logger.info(
+        "Starting pipeline",
+        extra={"topic": topic, "num_sources": num_sources},
+    )
 
-    planning_output = await planning_phase(topic, logger, run_dir, num_sources=3)
+    planning_output = await planning_phase(
+        topic, logger, run_dir, num_sources=num_sources
+    )
     extraction_results = await extract_from_sources(
         planning_output.selected_sources, topic, logger, run_dir
     )
