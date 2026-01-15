@@ -12,14 +12,8 @@ import logging
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
-from langchain.agents import create_agent
-from langchain.messages import HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_mcp_adapters.tools import load_mcp_tools
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+from mcp import ClientSession
 from pydantic import ValidationError
 
 from agents import (
@@ -247,7 +241,7 @@ async def extract_from_sources(
         },
     )
 
-    save_phase_output(run_dir, "extraction", "all_results", all_results)
+    save_phase_output(run_dir, "extraction", "output", all_results)
 
     return all_results
 
@@ -363,11 +357,11 @@ async def main():
     topic = "委内瑞拉总统被美国逮捕"
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    logger, run_dir = setup_phase_logging(run_id, "full_pipeline")
+    logger, run_dir = setup_phase_logging(run_id, "pipeline")
 
     logger.info(f"Starting pipeline for topic: {topic}", extra={"topic": topic})
 
-    planning_output = await planning_phase(topic, logger, run_dir, num_sources=1)
+    planning_output = await planning_phase(topic, logger, run_dir, num_sources=3)
     extraction_results = await extract_from_sources(
         planning_output.selected_sources, topic, logger, run_dir
     )

@@ -230,6 +230,35 @@ def save_phase_output(
     return output_file
 
 
+def append_to_jsonl(
+    run_dir: Path,
+    filename: str,
+    data: dict[str, Any],
+) -> Path:
+    """Append a JSON object as a line to a JSONL file.
+
+    Args:
+        run_dir: Run directory path
+        filename: Output filename (without extension)
+        data: Data to append (will be JSON serialized as single line)
+
+    Returns:
+        Path to the JSONL file
+    """
+    output_file = run_dir / f"{filename}.jsonl"
+
+    # Make data JSON-serializable
+    if hasattr(data, "model_dump"):
+        data = data.model_dump(mode='json')
+    elif isinstance(data, dict):
+        data = _make_json_serializable(data)
+
+    with open(output_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps(data, ensure_ascii=False) + "\n")
+
+    return output_file
+
+
 def log_extraction_attempt(
     logger: logging.Logger,
     source_name: str,

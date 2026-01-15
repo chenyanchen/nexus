@@ -12,10 +12,10 @@ from typing import Any, Dict
 from pydantic import ValidationError
 
 from logging_utils import (
+    append_to_jsonl,
     log_agent_call,
     log_extraction_attempt,
     log_response_structure,
-    save_phase_output,
 )
 from schemas import ArticleExtraction, SelectedSource, SourceProcessingResult
 
@@ -150,15 +150,25 @@ def handle_extraction_error(
         # Already logged in validate_agent_response
         pass
     else:
-        # Generic exception
+        # Check if this is a transient tool/network error
+        is_tool_error = "ToolException" in type(error).__name__
+
         if logger:
-            logger.exception(
-                f"Unexpected error for {source.media_name}",
-                extra={
-                    "error_type": type(error).__name__,
-                    "traceback": traceback.format_exc(),
-                },
-            )
+            if is_tool_error:
+                # Transient tool errors - log at WARNING without traceback
+                logger.warning(
+                    f"Tool error for {source.media_name}: {str(error)[:200]}",
+                    extra={"error_type": type(error).__name__},
+                )
+            else:
+                # Unexpected errors - log at ERROR with traceback
+                logger.exception(
+                    f"Unexpected error for {source.media_name}",
+                    extra={
+                        "error_type": type(error).__name__,
+                        "traceback": traceback.format_exc(),
+                    },
+                )
 
     # Log agent call
     if logger:
@@ -230,11 +240,10 @@ def create_success_result(
 
     # Save raw response for debugging
     if run_dir:
-        save_phase_output(
+        append_to_jsonl(
             run_dir,
-            "extraction",
-            f"{source.media_name.replace(' ', '_')}_response",
-            response,
+            "extraction_responses",
+            {"source": source.media_name, "response": response},
         )
 
     result = SourceProcessingResult(
