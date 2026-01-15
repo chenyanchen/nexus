@@ -224,7 +224,7 @@ def create_success_result(
             source.media_name,
             source.url,
             True,
-            article.model_dump() if article else None,
+            article.model_dump(mode='json') if article else None,
             None,
         )
 

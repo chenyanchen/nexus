@@ -48,11 +48,12 @@ The pipeline uses **three separate specialized agents** to implement the map-red
 
 ### Technology Stack
 
+- **uv**: Python package and project manager, use `uv` instead `python` command as possible
+- **Python 3.12**: Required runtime version
 - **LangChain**: Agent orchestration framework
 - **MCP (Model Context Protocol)**: Tool integration layer connecting LLM to external capabilities
 - **Playwright MCP Server**: Provides browser automation tools via `npx @playwright/mcp@latest`
 - **DeepSeek**: LLM model for agent reasoning and text generation
-- **Python 3.12**: Required runtime version
 
 ## Code Style
 

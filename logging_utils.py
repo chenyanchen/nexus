@@ -133,7 +133,7 @@ def log_agent_call(
             # Try to serialize to JSON for inspection
             try:
                 if hasattr(structured_resp, "model_dump"):
-                    log_entry["structured_response_data"] = structured_resp.model_dump()
+                    log_entry["structured_response_data"] = structured_resp.model_dump(mode='json')
                 else:
                     log_entry["structured_response_data"] = str(structured_resp)
             except Exception as e:
@@ -151,6 +151,49 @@ def log_agent_call(
         f"Agent call {'succeeded' if not error else 'failed'} for {source_name or phase}",
         extra=log_entry,
     )
+
+
+def _make_json_serializable(obj: Any) -> Any:
+    """Recursively convert objects to JSON-serializable forms.
+
+    Filters out non-serializable objects like LangChain messages.
+
+    Args:
+        obj: Object to convert
+
+    Returns:
+        JSON-serializable version of the object
+    """
+    from langchain_core.messages import BaseMessage
+
+    if isinstance(obj, dict):
+        result = {}
+        for key, value in obj.items():
+            # Skip the 'messages' key entirely (contains LangChain messages)
+            if key == "messages":
+                continue
+            result[key] = _make_json_serializable(value)
+        return result
+
+    elif isinstance(obj, list):
+        # Filter out LangChain message objects
+        return [
+            _make_json_serializable(item)
+            for item in obj
+            if not isinstance(item, BaseMessage)
+        ]
+
+    elif hasattr(obj, "model_dump"):
+        # Pydantic models
+        return obj.model_dump(mode='json')
+
+    elif isinstance(obj, (str, int, float, bool, type(None))):
+        # Primitives
+        return obj
+
+    else:
+        # For other types, convert to string representation
+        return str(obj)
 
 
 def save_phase_output(
@@ -174,9 +217,12 @@ def save_phase_output(
 
     # Convert Pydantic models to dicts
     if hasattr(data, "model_dump"):
-        data = data.model_dump()
+        data = data.model_dump(mode='json')
     elif isinstance(data, list) and data and hasattr(data[0], "model_dump"):
-        data = [item.model_dump() for item in data]
+        data = [item.model_dump(mode='json') for item in data]
+    # Handle dicts with mixed types (e.g., agent responses)
+    elif isinstance(data, dict):
+        data = _make_json_serializable(data)
 
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)

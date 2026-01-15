@@ -275,7 +275,7 @@ async def aggregate_results(
     ]
 
     results_json = json.dumps(
-        [r.model_dump() for r in successful_results],
+        [r.model_dump(mode='json') for r in successful_results],
         indent=2,
         ensure_ascii=False,
     )
