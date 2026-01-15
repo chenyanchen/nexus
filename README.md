@@ -52,17 +52,20 @@ flowchart LR
 ## Installation
 
 1. Clone the repository:
+
    ```bash
    git clone https://github.com/chenyanchen/nexus.git
    cd nexus
    ```
 
 2. Install dependencies with `uv`:
+
    ```bash
    uv sync
    ```
 
 3. Set up your API key:
+
    ```bash
    export DEEPSEEK_API_KEY=your_api_key_here
    ```
@@ -82,16 +85,16 @@ python main.py -t "US election" -n 10
 
 ### Arguments
 
-| Argument | Short | Required | Default | Description |
-|----------|-------|----------|---------|-------------|
-| `--topic` | `-t` | Yes | - | News topic to search for |
-| `--num-sources` | `-n` | No | 10 | Number of sources to process |
+| Argument        | Short | Required | Default | Description                  |
+| --------------- | ----- | -------- | ------- | ---------------------------- |
+| `--topic`       | `-t`  | Yes      | -       | News topic to search for     |
+| `--num-sources` | `-n`  | No       | 10      | Number of sources to process |
 
 ### Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DEEPSEEK_API_KEY` | Yes | API key for DeepSeek LLM |
+| Variable           | Required | Description              |
+| ------------------ | -------- | ------------------------ |
+| `DEEPSEEK_API_KEY` | Yes      | API key for DeepSeek LLM |
 
 ## Output
 
@@ -112,11 +115,11 @@ Global media coverage shows consensus on the urgency of climate action...
 
 ## Media Comparison Table
 
-| Country/Organization | Media Name | Article | Sentiment | Core Viewpoint |
-| -------------------- | ---------- | ------- | --------- | -------------- |
-| United States | CNN | [Climate talks...](url) | neutral | Balanced coverage focusing on... |
-| Russia | RT | [Western nations...](url) | negative | Critical stance toward... |
-| France | France 24 | [Historic agreement...](url) | positive | Optimistic framing of... |
+| Country/Organization | Media Name | Article                      | Sentiment | Core Viewpoint                   |
+| -------------------- | ---------- | ---------------------------- | --------- | -------------------------------- |
+| United States        | CNN        | [Climate talks...](url)      | neutral   | Balanced coverage focusing on... |
+| Russia               | RT         | [Western nations...](url)    | negative  | Critical stance toward...        |
+| France               | France 24  | [Historic agreement...](url) | positive  | Optimistic framing of...         |
 ```
 
 ## News Sources
@@ -129,6 +132,11 @@ Nexus aggregates from 17+ global news outlets including:
 - **Asia**: NHK, Yonhap
 - **Middle East**: Times of Israel, Press TV
 - **Others**: RT, TASS, Kyiv Independent
+
+## Todo
+
+- [ ] Parallel extraction agents
+- [ ] Deep Agent solution instead of agents workflow
 
 ## Contributing
 
